@@ -40,6 +40,7 @@ namespace dotless.Core.Parser
     using Infrastructure;
     using Infrastructure.Nodes;
     using Tree;
+    using System.Text.RegularExpressions;
 
     public class Parsers
     {
@@ -74,7 +75,7 @@ namespace dotless.Core.Parser
             GatherComments(parser);
 
             while (node = MixinDefinition(parser) || Rule(parser) || PullComments() || Ruleset(parser) ||
-                          MixinCall(parser) || Directive(parser))
+                          MixinCall(parser) || Directive(parser, root))
             {
                 if (comments = PullComments())
                 {
@@ -1042,7 +1043,7 @@ namespace dotless.Core.Parser
         // file-system operation. The function used for importing is
         // stored in `import`, which we pass to the Import constructor.
         //
-        public Import Import(Parser parser)
+        public Import Import(Parser parser, NodeList root = null)
         {
             Node path = null;
 
@@ -1062,7 +1063,36 @@ namespace dotless.Core.Parser
                     return NodeProvider.Import(path as Quoted, parser.Importer, features, isOnce, parser.Tokenizer.GetNodeLocation(index));
 
                 if (path is Url)
-                    return NodeProvider.Import(path as Url, parser.Importer, features, isOnce, parser.Tokenizer.GetNodeLocation(index));
+                {
+                    Url pathUrl = path as Url;
+                    while (pathUrl.NeedsInterpolation())
+                    {
+                        string interpolation = pathUrl.GetUnadjustedUrl();
+                        Console.WriteLine(interpolation + " - import path needs string interpolation");
+                        if (root == null || root.Count <= 0)
+                            throw new ParsingException("string interpolation at @import statement couldnt solved - no variables declared", parser.Tokenizer.GetNodeLocation(index));
+
+                        pathUrl.Value = new Quoted(
+                            Regex.Replace(interpolation, @"@\{([\w-]+)\}", m =>
+                                {
+                                    string key = string.Concat("@", m.Groups[1].Value);
+                                    string value = (root.FirstOrDefault(n =>
+                                            (n is Rule)
+                                            && (n as Rule).Variable
+                                            && !string.IsNullOrEmpty((n as Rule).Name)
+                                            && string.Equals((n as Rule).Name, key)
+                                        ) as Rule).Value.ToString();
+                                    if (string.IsNullOrEmpty(value))
+                                        throw new ParsingException(string.Format("string interpolation at @import statement couldnt solved - variable [{0}] not found", key), parser.Tokenizer.GetNodeLocation(index));
+
+                                    return value.Replace("\"", "");
+                                }),
+                            '"',
+                            false);
+                    }
+
+                    return NodeProvider.Import(pathUrl, parser.Importer, features, isOnce, parser.Tokenizer.GetNodeLocation(index));
+                }
 
                 throw new ParsingException("unrecognised @import format", parser.Tokenizer.GetNodeLocation(index));
             }
@@ -1075,12 +1105,12 @@ namespace dotless.Core.Parser
         //
         //     @charset "utf-8";
         //
-        public Node Directive(Parser parser)
+        public Node Directive(Parser parser, NodeList root = null)
         {
             if (parser.Tokenizer.CurrentChar != '@')
                 return null;
 
-            var import = Import(parser);
+            var import = Import(parser, root);
             if (import)
                 return import;
 

@@ -144,5 +144,13 @@
             get { return Inner[index]; }
             set { Inner[index] = value; }
         }
+
+        public TNode FirstOrDefault(System.Predicate<TNode> match)
+        {
+            if (!Inner.Exists(match))
+                return null;
+
+            return Inner.Find(match);
+        }
     }
 }

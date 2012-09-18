@@ -79,5 +79,10 @@
         {
             Value = VisitAndReplace(Value, visitor);
         }
+
+        public bool NeedsInterpolation()
+        {
+            return Regex.IsMatch(this.GetUnadjustedUrl(), @"@\{([\w-]+)\}");
+        }
     }
 }
